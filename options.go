@@ -66,7 +66,7 @@ func WithPreAlloc(preAlloc bool) Option {
 }
 
 // WithMaxBlockingTasks sets up the maximum number of goroutines that are blocked when it reaches the capacity of pool.
-func WithMaxBlockingTasks(maxBlockingTasks int) Option {
+func WithMaxBlockingTasks(maxBlockingTasks int) Option { //设置最大等待的任务数量
 	return func(opts *Options) {
 		opts.MaxBlockingTasks = maxBlockingTasks
 	}

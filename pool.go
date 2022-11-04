@@ -139,7 +139,7 @@ func NewPool(size int, options ...Option) (*Pool, error) {
 			task: make(chan func(), workerChanCap),
 		}
 	}
-	if p.options.PreAlloc {
+	if p.options.PreAlloc { //如果设置预先分配容量,则使用循环队列管理worker,否则使用栈管理
 		if size == -1 {
 			return nil, ErrInvalidPreAllocSize
 		}
@@ -172,10 +172,10 @@ func (p *Pool) Submit(task func()) error {
 		return ErrPoolClosed
 	}
 	var w *goWorker
-	if w = p.retrieveWorker(); w == nil {
+	if w = p.retrieveWorker(); w == nil { //当提交一个任务时,尝试获取可用的worker
 		return ErrPoolOverload
 	}
-	w.task <- task
+	w.task <- task //如果获取到了可用的worker 将任务交由他执行
 	return nil
 }
 
@@ -282,7 +282,7 @@ func (p *Pool) addWaiting(delta int) {
 // retrieveWorker returns an available worker to run the tasks.
 func (p *Pool) retrieveWorker() (w *goWorker) {
 	spawnWorker := func() {
-		w = p.workerCache.Get().(*goWorker)
+		w = p.workerCache.Get().(*goWorker) //从sync.Pool中获取worker
 		w.run()
 	}
 

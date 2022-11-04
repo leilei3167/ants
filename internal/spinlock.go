@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 )
 
-type spinLock uint32
+type spinLock uint32 //自旋锁的实现
 
 const maxBackoff = 16
 

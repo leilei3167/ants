@@ -24,7 +24,7 @@ type workerArray interface {
 
 type arrayType int
 
-const (
+const ( //两种数据结构,一个栈,一个循环队列
 	stackType arrayType = 1 << iota
 	loopQueueType
 )
