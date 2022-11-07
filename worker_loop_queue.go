@@ -5,6 +5,12 @@ import "time"
 type loopQueue struct {
 	items  []*goWorker
 	expiry []*goWorker
+	//头和尾相同时,为空;
+	//当添加worker时,尾会向后移;在head取出时,head也会向后移,此时tail>head
+	//当tail或head到达数组尾部,会出现回绕,此时可能head>tail
+	//当tail赶上head时,就说明队列已满
+	//而当head赶上tail时,说明队列已空
+	//由于head=tail时,队列可能为空也可能满,所以需要增加一个isFull字段用于判断
 	head   int
 	tail   int
 	size   int
@@ -41,6 +47,7 @@ func (wq *loopQueue) isEmpty() bool {
 	return wq.head == wq.tail && !wq.isFull
 }
 
+// 循环队列入队
 func (wq *loopQueue) insert(worker *goWorker) error {
 	if wq.size == 0 {
 		return errQueueIsReleased
@@ -49,31 +56,32 @@ func (wq *loopQueue) insert(worker *goWorker) error {
 	if wq.isFull {
 		return errQueueIsFull
 	}
-	wq.items[wq.tail] = worker
-	wq.tail++
+	wq.items[wq.tail] = worker //尾设置为worker
+	wq.tail++                  //移动尾指针
 
-	if wq.tail == wq.size {
-		wq.tail = 0
+	if wq.tail == wq.size { //判断是否应该回绕,等于size时已经数组越界了
+		wq.tail = 0 //指向队首
 	}
-	if wq.tail == wq.head {
+	if wq.tail == wq.head { //当移动tail后,判断是否已经追上head,追上说明已满
 		wq.isFull = true
 	}
 
 	return nil
 }
 
+// 循环队列出队
 func (wq *loopQueue) detach() *goWorker {
 	if wq.isEmpty() {
 		return nil
 	}
 
 	w := wq.items[wq.head]
-	wq.items[wq.head] = nil
+	wq.items[wq.head] = nil //置为nil,解除引用
 	wq.head++
-	if wq.head == wq.size {
+	if wq.head == wq.size { //回绕
 		wq.head = 0
 	}
-	wq.isFull = false
+	wq.isFull = false //一定不为空
 
 	return w
 }

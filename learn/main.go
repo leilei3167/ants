@@ -32,7 +32,7 @@ func main() {
 	fmt.Printf("finish all tasks.\n")
 
 	//2.或者创建带有执行任务的池
-	p, _ := ants.NewPoolWithFunc(10, func(i interface{}) {
+	p, _ := ants.NewPoolWithFunc(1000, func(i interface{}) {
 		myFunc(i) //任务的参数可以靠闭包来传递
 		wg.Done()
 	})
@@ -46,7 +46,7 @@ func main() {
 	fmt.Printf("finish all tasks, result is %d\n", sum)
 
 	//3.创建自定义pool
-	p1, _ := ants.NewPool(100, ants.WithNonblocking(true),
+	p1, _ := ants.NewPool(1000, ants.WithNonblocking(true),
 		ants.WithPreAlloc(true)) //非阻塞模式,并且预先分配内存(大容量池,并且耗时任务时非常有用)
 	_ = p1.Submit(func() {
 		fmt.Println("hello")
@@ -58,6 +58,7 @@ func main() {
 	//p1.Tune(100000) // Tune its capacity to 100000
 
 	//提交到pool的任务不会安装添加的顺序执行,不保证有序运行
+	testArry()
 
 }
 
@@ -73,4 +74,31 @@ func myFunc(i interface{}) {
 func demoFunc() {
 	time.Sleep(10 * time.Millisecond)
 	fmt.Println("Hello World!")
+}
+
+type person struct {
+	Name string
+	Age  int
+}
+
+func testArry() {
+	a := make([]*person, 3)
+	a = append(a, &person{
+		Name: "lei",
+		Age:  10,
+	}, &person{
+		Name: "yang",
+		Age:  20,
+	}, &person{
+		Name: "hco",
+		Age:  30,
+	})
+	//取出最后一个
+	fmt.Printf("一开始的a:%v\n", a)
+	last := a[len(a)-1]
+	fmt.Printf("last 的地址:%p,值为:%v\n", last, last)
+	a[len(a)-1] = nil //置为空,主动取消对最后一个元素的引用
+	fmt.Printf("置为空的a:%v\n", a)
+	fmt.Printf("数组置为空之后 last地址:%p,值为:%v\n", last, last)
+
 }

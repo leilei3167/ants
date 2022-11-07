@@ -18,7 +18,7 @@ type Options struct {
 	// ExpiryDuration is a period for the scavenger goroutine to clean up those expired workers,
 	// the scavenger scans all workers every `ExpiryDuration` and clean up those workers that haven't been
 	// used for more than `ExpiryDuration`.
-	ExpiryDuration time.Duration
+	ExpiryDuration time.Duration //当一个worker超过此时间没有被使用时,会被清理
 
 	// PreAlloc indicates whether to make memory pre-allocation when initializing Pool.
 	PreAlloc bool

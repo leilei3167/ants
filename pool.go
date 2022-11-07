@@ -45,7 +45,7 @@ type Pool struct {
 	lock sync.Locker
 
 	// workers is a slice that store the available workers.
-	workers workerArray
+	workers workerArray //存放的goWorker数据结构
 
 	// state is used to notice the pool to closed itself.
 	state int32
@@ -59,8 +59,8 @@ type Pool struct {
 	// waiting is the number of goroutines already been blocked on pool.Submit(), protected by pool.lock
 	waiting int32
 
-	heartbeatDone int32
-	stopHeartbeat context.CancelFunc
+	heartbeatDone int32              //过期检查是否完毕
+	stopHeartbeat context.CancelFunc //关闭过期检查的回调
 
 	options *Options
 }
@@ -81,7 +81,7 @@ func (p *Pool) purgePeriodically(ctx context.Context) {
 			return
 		}
 
-		if p.IsClosed() {
+		if p.IsClosed() { //如果已经关闭则退出循环
 			break
 		}
 
@@ -93,7 +93,8 @@ func (p *Pool) purgePeriodically(ctx context.Context) {
 		// This notification must be outside the p.lock, since w.task
 		// may be blocking and may consume a lot of time if many workers
 		// are located on non-local CPUs.
-		for i := range expiredWorkers {
+		for i := range expiredWorkers { //因为已过期的worker开启的goroutine还阻塞在taskChan上
+			//因此需要发送一个nil 是的goroutine退出,退出后解除对该worker的引用
 			expiredWorkers[i].task <- nil
 			expiredWorkers[i] = nil
 		}
@@ -103,7 +104,7 @@ func (p *Pool) purgePeriodically(ctx context.Context) {
 		// while some invokers still get stuck in "p.cond.Wait()",
 		// then it ought to wake all those invokers.
 		if p.Running() == 0 || (p.Waiting() > 0 && p.Free() > 0) {
-			p.cond.Broadcast()
+			p.cond.Broadcast() //使所有cond.Wait处解除阻塞
 		}
 	}
 }
@@ -113,14 +114,14 @@ func NewPool(size int, options ...Option) (*Pool, error) {
 	opts := loadOptions(options...)
 
 	if size <= 0 {
-		size = -1
+		size = -1 //负数为无限制
 	}
 
 	if !opts.DisablePurge {
 		if expiry := opts.ExpiryDuration; expiry < 0 {
 			return nil, ErrInvalidPoolExpiry
 		} else if expiry == 0 {
-			opts.ExpiryDuration = DefaultCleanIntervalTime
+			opts.ExpiryDuration = DefaultCleanIntervalTime //默认1s检查一次,超过1s没有被使用的worker将被清理
 		}
 	}
 
@@ -133,7 +134,7 @@ func NewPool(size int, options ...Option) (*Pool, error) {
 		lock:     internal.NewSpinLock(),
 		options:  opts,
 	}
-	p.workerCache.New = func() interface{} {
+	p.workerCache.New = func() interface{} { //sync.Pool的创建方法,节约goWorker的创建成本
 		return &goWorker{
 			pool: p,
 			task: make(chan func(), workerChanCap),
@@ -148,7 +149,7 @@ func NewPool(size int, options ...Option) (*Pool, error) {
 		p.workers = newWorkerArray(stackType, 0)
 	}
 
-	p.cond = sync.NewCond(p.lock)
+	p.cond = sync.NewCond(p.lock) //TODO:cond的用法?条件变量
 
 	// Start a goroutine to clean up expired workers periodically.
 	var ctx context.Context
@@ -172,10 +173,10 @@ func (p *Pool) Submit(task func()) error {
 		return ErrPoolClosed
 	}
 	var w *goWorker
-	if w = p.retrieveWorker(); w == nil { //当提交一个任务时,尝试获取可用的worker
+	if w = p.retrieveWorker(); w == nil { //当调用Submit提交一个任务时,尝试获取可用的worker
 		return ErrPoolOverload
 	}
-	w.task <- task //如果获取到了可用的worker 将任务交由他执行
+	w.task <- task //如果获取到了可用的worker 将任务交放入他的taskChan
 	return nil
 }
 
@@ -211,11 +212,11 @@ func (p *Pool) Tune(size int) {
 	}
 	atomic.StoreInt32(&p.capacity, int32(size))
 	if size > capacity {
-		if size-capacity == 1 {
+		if size-capacity == 1 { //只大一个容量时,唤醒一个goroutine
 			p.cond.Signal()
 			return
 		}
-		p.cond.Broadcast()
+		p.cond.Broadcast() //唤醒所有
 	}
 }
 
@@ -226,8 +227,8 @@ func (p *Pool) IsClosed() bool {
 
 // Release closes this pool and releases the worker queue.
 func (p *Pool) Release() {
-	if !atomic.CompareAndSwapInt32(&p.state, OPENED, CLOSED) {
-		return
+	if !atomic.CompareAndSwapInt32(&p.state, OPENED, CLOSED) { //如果是已CLOSED的 则不做任何操作
+		return //避免重复关闭
 	}
 	p.lock.Lock()
 	p.workers.reset()
@@ -259,10 +260,10 @@ func (p *Pool) ReleaseTimeout(timeout time.Duration) error {
 
 // Reboot reboots a closed pool.
 func (p *Pool) Reboot() {
-	if atomic.CompareAndSwapInt32(&p.state, CLOSED, OPENED) {
+	if atomic.CompareAndSwapInt32(&p.state, CLOSED, OPENED) { //close状态才操作
 		atomic.StoreInt32(&p.heartbeatDone, 0)
 		var ctx context.Context
-		ctx, p.stopHeartbeat = context.WithCancel(context.Background())
+		ctx, p.stopHeartbeat = context.WithCancel(context.Background()) //重新开启一个定期清理(被关闭时已经退出)
 		if !p.options.DisablePurge {
 			go p.purgePeriodically(ctx)
 		}
@@ -290,27 +291,36 @@ func (p *Pool) retrieveWorker() (w *goWorker) {
 
 	w = p.workers.detach()
 	if w != nil { // first try to fetch the worker from the queue
-		p.lock.Unlock()
+		p.lock.Unlock() //不为nil说明成功获取到了一个worker,可以直接返回
 	} else if capacity := p.Cap(); capacity == -1 || capacity > p.Running() {
+		//如果池容量没有用完(容量大于正在运行的worker数量,直接创建新的worker即可)
 		// if the worker queue is empty and we don't run out of the pool capacity,
 		// then just spawn a new worker goroutine.
 		p.lock.Unlock()
 		spawnWorker()
 	} else { // otherwise, we'll have to keep them blocked and wait for at least one worker to be put back into pool.
+		//容量已满,判断是否开启非阻塞模式,开启的话直接返回nil
 		if p.options.Nonblocking {
 			p.lock.Unlock()
 			return
 		}
+		//开启了阻塞模式
 	retry:
+		//开启了阻塞等待模式,且当前等待的任务数量大于等于最大等待数量,直接返回nil
 		if p.options.MaxBlockingTasks != 0 && p.Waiting() >= p.options.MaxBlockingTasks {
 			p.lock.Unlock()
 			return
 		}
 		p.addWaiting(1)
+		//cond.Wait会将当前的goroutine挂起(会调用内部的p.lock.Unlock)
+		//cond.Signal或者Broadcast会唤醒,被唤醒的goroutine内部会重新指向lock的操作,所以wait之后的逻辑是在
+		//有锁的条件下进行的
 		p.cond.Wait() // block and wait for an available worker
+		//当worker执行完一个任务时,会调用insert方法将worker放回,并调用cond.Signal通知此处解除等待
+		//然后等待数量减1
 		p.addWaiting(-1)
 
-		if p.IsClosed() {
+		if p.IsClosed() { //解除等待后首先应判断是否关闭
 			p.lock.Unlock()
 			return
 		}
@@ -318,16 +328,16 @@ func (p *Pool) retrieveWorker() (w *goWorker) {
 		var nw int
 		if nw = p.Running(); nw == 0 { // awakened by the scavenger
 			p.lock.Unlock()
-			spawnWorker()
+			spawnWorker() //没有worker,创建新的worker
 			return
 		}
-		if w = p.workers.detach(); w == nil {
-			if nw < p.Cap() {
+		if w = p.workers.detach(); w == nil { //有worker,取出一个;此操作可能会失败,因为可能会有多个goroutine在等待
+			if nw < p.Cap() { //在运行的没有达到容量,则创建
 				p.lock.Unlock()
 				spawnWorker()
 				return
 			}
-			goto retry
+			goto retry //否则再次等待
 		}
 		p.lock.Unlock()
 	}
@@ -350,7 +360,7 @@ func (p *Pool) revertWorker(worker *goWorker) bool {
 		return false
 	}
 
-	err := p.workers.insert(worker)
+	err := p.workers.insert(worker) //任务执行完毕,将worker放回
 	if err != nil {
 		p.lock.Unlock()
 		return false
