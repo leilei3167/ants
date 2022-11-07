@@ -38,7 +38,7 @@ type goWorker struct { //每个任务都由worker对象来处理,每个worker对
 	task chan func() //该worker接收任务的通道
 
 	// recycleTime will be updated when putting a worker back into queue.
-	recycleTime time.Time //记录该worker什么时候被放回池中的,完成任务被放回pool时被设置
+	recycleTime time.Time //记录该worker什么时候被放回池中的,完成任务被放回pool时被更新,避免被当做空闲worker清除掉
 }
 
 // run starts a goroutine to repeat the process
@@ -71,7 +71,7 @@ func (w *goWorker) run() {
 			f()                                    //执行任务
 			if ok := w.pool.revertWorker(w); !ok { //将执行完任务的g放回pool中
 				return //放回操作失败return,避免goroutine泄漏
-			}
+			} //放回成功不退出此goroutine
 		}
 	}()
 }

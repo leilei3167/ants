@@ -18,7 +18,7 @@ func (sl *spinLock) Lock() {
 	backoff := 1
 	for !atomic.CompareAndSwapUint32((*uint32)(sl), 0, 1) {
 		// Leverage the exponential backoff algorithm, see https://en.wikipedia.org/wiki/Exponential_backoff.
-		for i := 0; i < backoff; i++ {
+		for i := 0; i < backoff; i++ { //指数退避的循环等待,而不是无脑的for循环
 			runtime.Gosched() //没有获取到锁,告诉runtime切换其他goroutine运行
 		} //等待1,2,4,8..周期,防止短时间内获取不到锁,导致cpu时间浪费
 		if backoff < maxBackoff {

@@ -32,32 +32,33 @@ import (
 )
 
 // Pool accepts the tasks from client, it limits the total of goroutines to a given number by recycling goroutines.
+// 一个池中最核心的资源就是worker,由pool负责对worker的调度,work存放在一个特定的数据结构中;
 type Pool struct {
 	// capacity of the pool, a negative value means that the capacity of pool is limitless, an infinite pool is used to
 	// avoid potential issue of endless blocking caused by nested usage of a pool: submitting a task to pool
 	// which submits a new task to the same pool.
-	capacity int32
+	capacity int32 //容量
 
 	// running is the number of the currently running goroutines.
-	running int32
+	running int32 //当前正在运行的goroutine
 
 	// lock for protecting the worker queue.
-	lock sync.Locker
+	lock sync.Locker //一个自旋锁
 
 	// workers is a slice that store the available workers.
 	workers workerArray //存放的goWorker数据结构
 
 	// state is used to notice the pool to closed itself.
-	state int32
+	state int32 //用于判断池处于何种状态
 
 	// cond for waiting to get an idle worker.
-	cond *sync.Cond
+	cond *sync.Cond //用于多个goroutine等待某个特定资源(task等待worker,当worker就绪时会调用Signal)的控制
 
 	// workerCache speeds up the obtainment of a usable worker in function:retrieveWorker.
-	workerCache sync.Pool
+	workerCache sync.Pool //提高worker的复用
 
 	// waiting is the number of goroutines already been blocked on pool.Submit(), protected by pool.lock
-	waiting int32
+	waiting int32 //当前在等待获取worker的Submit的数量,如果是非并发的提交执行Submit,则阻塞数量最大为1
 
 	heartbeatDone int32              //过期检查是否完毕
 	stopHeartbeat context.CancelFunc //关闭过期检查的回调
@@ -111,13 +112,13 @@ func (p *Pool) purgePeriodically(ctx context.Context) {
 
 // NewPool generates an instance of ants pool.
 func NewPool(size int, options ...Option) (*Pool, error) {
-	opts := loadOptions(options...)
+	opts := loadOptions(options...) //选项模式,将可配置的选项单独提取成一个结构体
 
 	if size <= 0 {
 		size = -1 //负数为无限制
 	}
 
-	if !opts.DisablePurge {
+	if !opts.DisablePurge { //默认开启worker清理
 		if expiry := opts.ExpiryDuration; expiry < 0 {
 			return nil, ErrInvalidPoolExpiry
 		} else if expiry == 0 {
@@ -125,14 +126,14 @@ func NewPool(size int, options ...Option) (*Pool, error) {
 		}
 	}
 
-	if opts.Logger == nil {
+	if opts.Logger == nil { //补齐没有设置的opts部分字段
 		opts.Logger = defaultLogger
 	}
 
 	p := &Pool{
 		capacity: int32(size),
 		lock:     internal.NewSpinLock(),
-		options:  opts,
+		options:  opts, //持有配置
 	}
 	p.workerCache.New = func() interface{} { //sync.Pool的创建方法,节约goWorker的创建成本
 		return &goWorker{
@@ -172,7 +173,7 @@ func (p *Pool) Submit(task func()) error {
 	if p.IsClosed() {
 		return ErrPoolClosed
 	}
-	var w *goWorker
+	var w *goWorker                       //Submit可能也是并发被调用的
 	if w = p.retrieveWorker(); w == nil { //当调用Submit提交一个任务时,尝试获取可用的worker
 		return ErrPoolOverload
 	}
@@ -282,17 +283,17 @@ func (p *Pool) addWaiting(delta int) {
 
 // retrieveWorker returns an available worker to run the tasks.
 func (p *Pool) retrieveWorker() (w *goWorker) {
-	spawnWorker := func() {
+	spawnWorker := func() { //创建worker,直接run,run会使其开启一个goroutine
 		w = p.workerCache.Get().(*goWorker) //从sync.Pool中获取worker
 		w.run()
 	}
 
-	p.lock.Lock()
+	p.lock.Lock() //先上锁,并发安全
 
 	w = p.workers.detach()
 	if w != nil { // first try to fetch the worker from the queue
 		p.lock.Unlock() //不为nil说明成功获取到了一个worker,可以直接返回
-	} else if capacity := p.Cap(); capacity == -1 || capacity > p.Running() {
+	} else if capacity := p.Cap(); capacity == -1 || capacity > p.Running() { //容量为无限或者容量没有被用完,直接创建新的worker即可
 		//如果池容量没有用完(容量大于正在运行的worker数量,直接创建新的worker即可)
 		// if the worker queue is empty and we don't run out of the pool capacity,
 		// then just spawn a new worker goroutine.
@@ -347,7 +348,7 @@ func (p *Pool) retrieveWorker() (w *goWorker) {
 // revertWorker puts a worker back into free pool, recycling the goroutines.
 func (p *Pool) revertWorker(worker *goWorker) bool {
 	if capacity := p.Cap(); (capacity > 0 && p.Running() > capacity) || p.IsClosed() {
-		p.cond.Broadcast()
+		p.cond.Broadcast() //唤醒所有的等待获取worker的协程
 		return false
 	}
 	worker.recycleTime = time.Now()
@@ -355,7 +356,7 @@ func (p *Pool) revertWorker(worker *goWorker) bool {
 
 	// To avoid memory leaks, add a double check in the lock scope.
 	// Issue: https://github.com/panjf2000/ants/issues/113
-	if p.IsClosed() {
+	if p.IsClosed() { //池被关闭,放回不成功
 		p.lock.Unlock()
 		return false
 	}
@@ -367,7 +368,7 @@ func (p *Pool) revertWorker(worker *goWorker) bool {
 	}
 
 	// Notify the invoker stuck in 'retrieveWorker()' of there is an available worker in the worker queue.
-	p.cond.Signal()
+	p.cond.Signal() //放回一个worker,通知任意一个协程恢复
 	p.lock.Unlock()
 	return true
 }
