@@ -118,7 +118,7 @@ func NewPool(size int, options ...Option) (*Pool, error) {
 		size = -1 //负数为无限制
 	}
 
-	if !opts.DisablePurge { //默认开启worker清理
+	if !opts.DisablePurge {
 		if expiry := opts.ExpiryDuration; expiry < 0 {
 			return nil, ErrInvalidPoolExpiry
 		} else if expiry == 0 {
