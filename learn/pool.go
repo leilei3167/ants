@@ -16,7 +16,7 @@ type Pool struct {
 
 	workers workerArray //存放worker的数据结构
 
-	state       int32      //池的状态标记
+	state       int32      //池的状态标记 开启 或关闭
 	cond        *sync.Cond //实现多个等待worker来执行
 	workerCache sync.Pool
 	waiting     int32 //当前等待被执行的任务数量
@@ -230,6 +230,9 @@ func (p *Pool) revertWorker(worker *goWorker) bool {
 	return true
 }
 
+//---------------------------------------------------------------------------------------
+
+// Tune 可在运行时修改池的容量
 func (p *Pool) Tune(size int) {
 	capacity := p.Cap()
 	if capacity == -1 || size <= 0 || size == capacity || p.options.PreAlloc {
@@ -283,8 +286,17 @@ func (p *Pool) ReleaseTimeout(timeout time.Duration) error {
 	return ErrTimeout
 }
 
+// Reboot 将一个已经关闭的池重新打开
 func (p *Pool) Reboot() {
-
+	if atomic.CompareAndSwapInt32(&p.state, CLOSED, OPENED) { //将状态置为开启即可
+		//重新启动清理线程
+		atomic.StoreInt32(&p.heartbeatDone, 0)
+		var ctx context.Context
+		ctx, p.stopHeartbeat = context.WithCancel(context.Background())
+		if !p.options.DisablePurge {
+			go p.purgePeriodically(ctx)
+		}
+	}
 }
 
 func (p *Pool) IsClosed() bool {

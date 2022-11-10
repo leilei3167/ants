@@ -13,6 +13,7 @@ const (
 	DefaultCleanIntervalTime = time.Second
 	DefaultAntsPoolSize      = math.MaxInt32
 )
+
 const (
 	OPENED = iota
 	CLOSED
@@ -37,8 +38,6 @@ var (
 	// ErrTimeout will be returned after the operations timed out.
 	ErrTimeout = errors.New("operation timed out")
 
-	defaultLogger = Logger(log.New(os.Stderr, "", log.LstdFlags))
-
 	workerChanCap = func() int {
 		if runtime.GOMAXPROCS(0) == 1 { //单核处理器使用无缓冲channel
 			return 0
@@ -47,9 +46,41 @@ var (
 	}() //直接运行此匿名函数,而不是仅仅定义
 
 	defaultAntsPool, _ = NewPool(DefaultAntsPoolSize)
+
+	defaultLogger = Logger(log.New(os.Stderr, "", log.LstdFlags))
 )
 
 // Logger 能够被本包使用的Logger
 type Logger interface {
 	Printf(format string, v ...interface{})
+}
+
+// Submit submits a task to pool.
+func Submit(task func()) error {
+	return defaultAntsPool.Submit(task)
+}
+
+// Running returns the number of the currently running goroutines.
+func Running() int {
+	return defaultAntsPool.Running()
+}
+
+// Cap returns the capacity of this default pool.
+func Cap() int {
+	return defaultAntsPool.Cap()
+}
+
+// Free returns the available goroutines to work.
+func Free() int {
+	return defaultAntsPool.Free()
+}
+
+// Release Closes the default pool.
+func Release() {
+	defaultAntsPool.Release()
+}
+
+// Reboot reboots the default pool.
+func Reboot() {
+	defaultAntsPool.Reboot()
 }

@@ -85,12 +85,42 @@ func (wq *loopQueue) detach() *goWorker {
 	return w
 }
 
-// TODO:循环队列的临街下标
 func (wq *loopQueue) retrieveExpiry(duration time.Duration) []*goWorker {
 	expiryTime := time.Now().Add(-duration)
 	index := wq.binarySearch(expiryTime)
+	if index == -1 {
+		return nil
+	}
+
+	wq.expiry = wq.expiry[:0]
+	if wq.head <= index { //如果此时head在index的左边,head到index这一段的过期
+		wq.expiry = append(wq.expiry, wq.items[wq.head:index+1]...)
+		for i := wq.head; i < index+1; i++ {
+			wq.items[i] = nil //解除对已过期worker的引用
+		}
+	} else { //head在index的右边
+		//head到数组末尾,已经数组首到index的 全部过期
+		wq.expiry = append(wq.expiry, wq.items[0:index+1]...)
+		wq.expiry = append(wq.expiry, wq.items[wq.head:]...)
+		for i := 0; i < index+1; i++ {
+			wq.items[i] = nil
+		}
+		for i := wq.head; i < wq.size; i++ {
+			wq.items[i] = nil
+		}
+	}
+
+	//重新定位head和tail
+	head := (index + 1) % wq.size
+	wq.head = head
+	if len(wq.expiry) > 0 {
+		wq.isFull = false
+	}
+
+	return wq.expiry
 }
 
+// TODO:循环队列的二分法
 func (wq *loopQueue) binarySearch(expiryTime time.Time) int {
 	var mid, nlen, basel, tmid int
 	nlen = len(wq.items) //总的循环队列大小
@@ -100,6 +130,21 @@ func (wq *loopQueue) binarySearch(expiryTime time.Time) int {
 		return -1
 	}
 
+	//将head视作左边界,tail-1视为右边界
+	r := (wq.tail - 1 - wq.head + nlen) % nlen
+	basel = wq.head
+	l := 0
+	for l <= r {
+		mid = l + ((r - l) >> 1) //右移1位,相当于除2
+
+		tmid = (mid + basel + nlen) % nlen
+		if expiryTime.Before(wq.items[tmid].recycleTime) {
+			r = mid - 1
+		} else {
+			l = mid + 1
+		}
+	}
+	return (r + basel + nlen) % nlen
 }
 
 func (wq *loopQueue) reset() {
