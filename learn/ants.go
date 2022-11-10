@@ -19,9 +19,23 @@ const (
 )
 
 var (
+	// ErrLackPoolFunc will be returned when invokers don't provide function for pool.
+	ErrLackPoolFunc = errors.New("must provide function for pool")
+
+	// ErrInvalidPoolExpiry will be returned when setting a negative number as the periodic duration to purge goroutines.
 	ErrInvalidPoolExpiry = errors.New("invalid expiry for pool")
-	// ErrInvalidPreAllocSize 当设置池容量为无限时但又要提前分配内存是返回
+
+	// ErrPoolClosed will be returned when submitting task to a closed pool.
+	ErrPoolClosed = errors.New("this pool has been closed")
+
+	// ErrPoolOverload will be returned when the pool is full and no workers available.
+	ErrPoolOverload = errors.New("too many goroutines blocked on submit or Nonblocking is set")
+
+	// ErrInvalidPreAllocSize will be returned when trying to set up a negative capacity under PreAlloc mode.
 	ErrInvalidPreAllocSize = errors.New("can not set up a negative capacity under PreAlloc mode")
+
+	// ErrTimeout will be returned after the operations timed out.
+	ErrTimeout = errors.New("operation timed out")
 
 	defaultLogger = Logger(log.New(os.Stderr, "", log.LstdFlags))
 
